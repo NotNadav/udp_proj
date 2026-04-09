@@ -1,0 +1,12 @@
+{
+  "blocked_domains": [
+    "http://info.cern.ch",
+    "reddit.com"
+  ],
+  "tunnel_domains": [
+    "facebook.com",
+    "youtube.com"
+  ],
+  "direct_domains": [],
+  "default_action": "DIRECT"
+}

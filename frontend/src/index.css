@@ -1,0 +1,58 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+  body { font-family: 'Inter', system-ui, sans-serif; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track  { background: #0f1117; }
+  ::-webkit-scrollbar-thumb  { background: #374151; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #6366f1; }
+}
+
+@layer components {
+  /* Glass card */
+  .glass {
+    @apply bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl;
+  }
+  /* Primary gradient button */
+  .btn-primary {
+    @apply inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm
+           bg-gradient-to-r from-indigo-500 to-violet-600
+           hover:from-indigo-400 hover:to-violet-500
+           active:scale-95 transition-all duration-150 shadow-lg shadow-indigo-500/25;
+  }
+  /* Danger button */
+  .btn-danger {
+    @apply inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium text-xs
+           bg-red-500/15 border border-red-500/30 text-red-400
+           hover:bg-red-500/25 hover:border-red-400 active:scale-95 transition-all;
+  }
+  /* Input */
+  .input {
+    @apply w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm
+           text-white placeholder-gray-500
+           focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50
+           transition-all;
+  }
+  /* Select */
+  .select {
+    @apply bg-gray-900 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white
+           focus:outline-none focus:border-indigo-500 transition-all cursor-pointer;
+  }
+  /* Status pill */
+  .badge {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold;
+  }
+}
+
+/* Glow effect on main accent */
+.glow { box-shadow: 0 0 40px rgba(99, 102, 241, 0.3); }
+
+/* Animated gradient background on login */
+.login-bg {
+  background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(99,102,241,0.25) 0%, transparent 70%),
+              radial-gradient(ellipse 50% 40% at 80% 90%, rgba(139,92,246,0.18) 0%, transparent 70%),
+              #090b10;
+}
