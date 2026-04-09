@@ -1,9 +1,3 @@
-"""
-Policy Engine — evaluates where traffic should go
-TUNNEL — Encrypt the traffic (AES-256-GCM) and send through the UDP VPN tunnel.
-BLOCK  — drop it
-DIRECT — bypass the VPN
-"""
 
 import json
 import os
