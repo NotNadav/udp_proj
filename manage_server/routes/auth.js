@@ -12,46 +12,6 @@ const authLimiter = rateLimit({
   message: { error: 'Too many attempts, please try again later.' },
 });
 
-/**
- * @openapi
- * tags:
- *   - name: Auth
- *     description: User registration and login
- */
-
-/**
- * @openapi
- * /api/auth/register:
- *   post:
- *     tags: [Auth]
- *     summary: Register a new user
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [username, password]
- *             properties:
- *               username:
- *                 type: string
- *                 example: alice
- *               password:
- *                 type: string
- *                 format: password
- *                 example: "S3curePass!"
- *     responses:
- *       201:
- *         description: User created
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/UserCreated'
- *       409:
- *         description: Username already exists
- *       422:
- *         description: Validation error
- */
 router.post('/register', authLimiter, async (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password) {
@@ -83,37 +43,6 @@ router.post('/register', authLimiter, async (req, res) => {
   }
 });
 
-/**
- * @openapi
- * /api/auth/login:
- *   post:
- *     tags: [Auth]
- *     summary: Login and receive a JWT token
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [username, password]
- *             properties:
- *               username:
- *                 type: string
- *                 example: admin
- *               password:
- *                 type: string
- *                 format: password
- *                 example: "admin123"
- *     responses:
- *       200:
- *         description: Login successful
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/LoginResponse'
- *       401:
- *         description: Invalid credentials
- */
 router.post('/login', authLimiter, async (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password) {

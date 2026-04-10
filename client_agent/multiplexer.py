@@ -34,6 +34,7 @@ class Multiplexer:
             print()
         #stream management
         self.active_streams = {}        # stream_id → {writer, action, arq, ...}
+        self._stream_send_queues = {}   # stream_id → asyncio.Queue for round-robin scheduler
         self.next_stream_id = 1
         self.session_id = 0             # assigned during ECDHE handshake
 
@@ -106,35 +107,6 @@ class Multiplexer:
             await loop.run_in_executor(None, lambda: urllib.request.urlopen(req, timeout=3))
         except Exception as e:
             print(f"[!] Traffic report failed for {domain}: {e}")
-
-    async def _report_health_loop(self):
-        """Periodically report network health (packet drops) to the API."""
-        while True:
-            await asyncio.sleep(10)
-            if not self.api_token:
-                continue
-            
-            # Sum up all ARQ retransmissions across active streams
-            total_retx = 0
-            for stream in self.active_streams.values():
-                if "arq" in stream and stream["arq"]:
-                    total_retx += stream["arq"].retransmissions
-                    
-            try:
-                payload = json.dumps({"retransmissions": total_retx}).encode()
-                req = urllib.request.Request(
-                    f"{self.API_URL}/api/logs/health",
-                    data=payload,
-                    headers={
-                        "Content-Type": "application/json",
-                        "Authorization": f"Bearer {self.api_token}",
-                    },
-                    method="POST",
-                )
-                with urllib.request.urlopen(req, timeout=3):
-                    pass
-            except Exception:
-                pass
 
     # ecdhe handshake
 
@@ -234,6 +206,29 @@ class Multiplexer:
                     except Exception:
                         pass
 
+    # round-robin stream scheduler
+
+    async def _packet_sender_loop(self):
+        """Round-robin scheduler: sends one DATA packet per active stream per turn.
+        Ensures fairness so no single stream starves the others."""
+        await self.handshake_done.wait()
+        loop = asyncio.get_running_loop()
+        while True:
+            stream_ids = list(self._stream_send_queues.keys())
+            sent_any = False
+            for sid in stream_ids:
+                q = self._stream_send_queues.get(sid)
+                if not q or q.empty():
+                    continue
+                try:
+                    pkt_bytes = q.get_nowait()
+                    await loop.sock_sendto(self.udp_socket, pkt_bytes, self.gateway_address)
+                    sent_any = True
+                except asyncio.QueueEmpty:
+                    pass
+            if not sent_any:
+                await asyncio.sleep(0.001)
+
     # listen to udp gateway
 
     async def start_udp_listener(self):
@@ -280,6 +275,7 @@ class Multiplexer:
                         writer = self.active_streams[stream_id]["writer"]
                         writer.close()
                         del self.active_streams[stream_id]
+                    self._stream_send_queues.pop(stream_id, None)
                     continue
 
                 # data from gateway
@@ -406,9 +402,9 @@ class Multiplexer:
             "action":    "TUNNEL",
             "arq":       send_arq,
             "recv_arq":  recv_arq,
-            "first_sent": False,
             "ready":     stream_ready,
         }
+        self._stream_send_queues[stream_id] = asyncio.Queue()
 
         loop = asyncio.get_running_loop()
 
@@ -479,7 +475,7 @@ class Multiplexer:
                 )
 
                 send_arq.mark_sent(seq, packet)
-                await loop.sock_sendto(self.udp_socket, packet, self.gateway_address)
+                await self._stream_send_queues[stream_id].put(packet)
 
         except Exception as e:
             print(f"[!] Stream {stream_id} error: {e}")
@@ -499,6 +495,7 @@ class Multiplexer:
             await self._report_traffic(domain, max(bytes_sent, 1))
             if stream_id in self.active_streams:
                 del self.active_streams[stream_id]
+            self._stream_send_queues.pop(stream_id, None)
             writer.close()
             await writer.wait_closed()
 
@@ -551,8 +548,8 @@ class Multiplexer:
         # Background tasks (wait for handshake internally)
         asyncio.create_task(self.start_udp_listener())
         asyncio.create_task(self.retransmission_loop())
+        asyncio.create_task(self._packet_sender_loop())
         asyncio.create_task(self.start_keep_alive())
-        asyncio.create_task(self._report_health_loop())
 
         # Start SOCKS5 server
         tcp_server = await asyncio.start_server(
