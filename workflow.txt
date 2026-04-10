@@ -1,8 +1,0 @@
-# on windows - after coding
-git add .
-git commit -m ""
-git push
-
-# on linux - before testing
-git pull
-# run tests
