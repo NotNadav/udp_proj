@@ -18,7 +18,7 @@ class PolicyEngine:
         self,
         api_url: str | None = None,
         api_token: str | None = None,
-        sync_interval: int = 60,
+        sync_interval: int = 10,
     ):
         self.api_url       = api_url or os.environ.get("MANAGE_SERVER_URL", "http://127.0.0.1:3001")
         self.api_token     = api_token or os.environ.get("PROXY_API_TOKEN", "")

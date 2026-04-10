@@ -254,7 +254,7 @@ class SecureGateway:
 
                 # stream level syn
                 if flags & ProtocolPacket.FLAG_SYN and not (flags & ProtocolPacket.FLAG_ACK):
-                    await self._handle_stream_syn(session, session_id, pkt, addr, loop)
+                    asyncio.create_task(self._handle_stream_syn(session, session_id, pkt, addr, loop))
                     continue
 
                 # stream fin
@@ -297,7 +297,6 @@ class SecureGateway:
                     writer = stream["writer"]
                     for chunk in ready:
                         writer.write(chunk)
-                    await writer.drain()
 
             except Exception as e:
                 print(f"[!] UDP listener error: {e}")

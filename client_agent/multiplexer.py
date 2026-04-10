@@ -51,7 +51,7 @@ class Multiplexer:
         self.policy_engine = PolicyEngine(
             api_url=self.API_URL,
             api_token=self.api_token,
-            sync_interval=60,
+            sync_interval=10,
         )
 
         #crypto (ECDHE) — key derived after handshake
