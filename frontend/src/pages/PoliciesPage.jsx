@@ -62,7 +62,10 @@ export default function PoliciesPage() {
     if (!form.domain.trim()) return
     setSaving(true)
     try {
-      await api.post('/api/policies', { domain: form.domain.trim().toLowerCase(), action: form.action })
+      const cleanDomain = form.domain.trim().toLowerCase()
+        .replace(/^https?:\/\//i, '')
+        .replace(/[/?#].*$/, '')
+      await api.post('/api/policies', { domain: cleanDomain, action: form.action })
       setForm(f => ({ ...f, domain: '' }))
       await fetchPolicies()
       showToast(`Rule added: ${form.domain} → ${form.action}`)

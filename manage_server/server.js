@@ -1,6 +1,8 @@
 require('dotenv').config();
 const express      = require('express');
 const cors         = require('cors');
+const https        = require('https');
+const fs           = require('fs');
 const swaggerJsdoc = require('swagger-jsdoc');
 const swaggerUi    = require('swagger-ui-express');
 
@@ -11,8 +13,10 @@ const policiesRoutes = require('./routes/policies');
 const logsRoutes     = require('./routes/logs');
 const usersRoutes    = require('./routes/users');
 
-const app  = express();
-const PORT = process.env.PORT || 3001;
+const app      = express();
+const PORT     = process.env.PORT || 3001;
+const USE_HTTPS = process.env.USE_HTTPS === 'true';
+const protocol  = USE_HTTPS ? 'https' : 'http';
 
 // middlewares
 const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173').split(',');
@@ -49,7 +53,7 @@ and **traffic log** ingestion/reporting from the gateway.
     },
   },
   servers: [
-    { url: `http://localhost:${PORT}`, description: 'Local development' },
+    { url: `${protocol}://localhost:${PORT}`, description: 'Local development' },
   ],
   components: {
     securitySchemes: {
@@ -168,10 +172,20 @@ app.use((err, _req, res, _next) => {
 });
 
 // start the server
-app.listen(PORT, () => {
-  console.log(`\nserver running on http://localhost:${PORT}`);
-  console.log(`swagger ui:  http://localhost:${PORT}/api-docs`);
-  console.log(`openapi spec:     http://localhost:${PORT}/api-docs.json\n`);
-});
+if (USE_HTTPS) {
+  const sslKey  = fs.readFileSync(process.env.SSL_KEY_PATH  || './certs/key.pem');
+  const sslCert = fs.readFileSync(process.env.SSL_CERT_PATH || './certs/cert.pem');
+  https.createServer({ key: sslKey, cert: sslCert }, app).listen(PORT, () => {
+    console.log(`\nserver running on https://localhost:${PORT}`);
+    console.log(`swagger ui:  https://localhost:${PORT}/api-docs`);
+    console.log(`openapi spec:     https://localhost:${PORT}/api-docs.json\n`);
+  });
+} else {
+  app.listen(PORT, () => {
+    console.log(`\nserver running on http://localhost:${PORT}`);
+    console.log(`swagger ui:  http://localhost:${PORT}/api-docs`);
+    console.log(`openapi spec:     http://localhost:${PORT}/api-docs.json\n`);
+  });
+}
 
 module.exports = app;

@@ -88,7 +88,11 @@ router.post('/', authenticate, async (req, res) => {
   if (!domain || !action) {
     return res.status(422).json({ error: 'domain and action are required' });
   }
-  if (!DOMAIN_RE.test(domain)) {
+  // strip protocol prefix and path if user pastes a full URL
+  const cleanDomain = domain.trim().toLowerCase()
+    .replace(/^https?:\/\//i, '')
+    .replace(/[/?#].*$/, '');
+  if (!DOMAIN_RE.test(cleanDomain)) {
     return res.status(422).json({ error: 'Invalid domain format' });
   }
   if (!validActions.includes(action)) {
@@ -98,7 +102,7 @@ router.post('/', authenticate, async (req, res) => {
   try {
     const [result] = await db.execute(
       'INSERT INTO policies (user_id, domain, action) VALUES (?, ?, ?)',
-      [req.user.id, domain.toLowerCase(), action]
+      [req.user.id, cleanDomain, action]
     );
     res.status(201).json({ id: result.insertId, domain, action });
   } catch (err) {
