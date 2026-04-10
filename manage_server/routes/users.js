@@ -50,12 +50,6 @@ router.delete('/:id', authenticate, requireAdmin, async (req, res) => {
   if (result.affectedRows === 0) {
     return res.status(404).json({ error: 'User not found' });
   }
-  
-  // Clean up global network health data if exists
-  if (global.networkHealth && global.networkHealth[userId]) {
-    delete global.networkHealth[userId];
-  }
-
   res.json({ message: 'User correctly deleted (Killswitch engaged)' });
 });
 
