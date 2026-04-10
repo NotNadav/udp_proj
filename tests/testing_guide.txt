@@ -1,0 +1,189 @@
+==============================================================
+  PROJECT TESTING GUIDE
+==============================================================
+
+There are two categories of tests:
+  A) Automated unit tests  — run with pytest, output in terminal
+  B) Manual system tests   — you run the full system and observe
+
+==============================================================
+  A) AUTOMATED UNIT TESTS (pytest)
+==============================================================
+
+These are the files in this folder:
+  - test_reliab.py   → tests the ARQ algorithm (39 tests total)
+  - test_protocol.py → tests the binary packet header
+  - test_crypto.py   → tests ECDHE key exchange + AES-GCM encryption
+
+HOW TO RUN:
+-----------
+From the project root (udp_proj/):
+
+  venv/bin/python -m pytest tests/ -v
+
+The -v flag means "verbose" — shows each test name and PASSED/FAILED.
+
+WHERE DOES THE OUTPUT GO?
+--------------------------
+Straight to your terminal. Example output looks like:
+
+  tests/test_reliab.py::TestSender::test_can_send_within_window PASSED
+  tests/test_reliab.py::TestReceiver::test_out_of_order_buffered_then_flushed PASSED
+  ...
+  39 passed in 0.58s
+
+No files are created. If a test fails it shows exactly which
+assertion failed and what the values were.
+
+USEFUL FLAGS:
+-------------
+  -v          verbose (show each test name)
+  -x          stop at first failure
+  --tb=short  shorter error traces
+  -k reliab   run only tests matching "reliab"
+
+Example: venv/bin/python -m pytest tests/test_reliab.py -v
+
+
+==============================================================
+  B) MANUAL SYSTEM TESTS
+==============================================================
+
+Before running any manual test, make sure the full system is up:
+  Terminal 1: node manage_server/server.js
+  Terminal 2: python secure_gateway/gateway_server.py
+  Terminal 3: python client_agent/multiplexer.py
+  Firefox:    SOCKS5 proxy → 127.0.0.1:1080
+
+--------------------------------------------------------------
+  TEST 1 — Network Condition Simulation (tc-netem)
+--------------------------------------------------------------
+PURPOSE:
+  Verify that the ARQ reliability layer handles packet loss and
+  delay correctly — data still gets through even on a bad network.
+
+WHAT YOU NEED:
+  - Linux (built-in tc command, no install needed)
+  - The full system running (see above)
+
+STEP 1 — Find your network interface name:
+  ip link show
+  Look for something like "eth0", "ens33", or "wlan0".
+  Use that name in the commands below (replace "eth0").
+
+STEP 2 — Add 10% packet loss:
+  sudo tc qdisc add dev eth0 root netem loss 10%
+
+STEP 3 — Browse normally in Firefox through the proxy.
+  Visit a few TUNNEL-policy sites (e.g. youtube.com if you have
+  a TUNNEL rule). The site should still load — just slower.
+  Watch the gateway terminal for retransmission messages like:
+    [retransmit] seq=X
+
+STEP 4 — Increase to 30% loss and test again:
+  sudo tc qdisc change dev eth0 root netem loss 30%
+
+STEP 5 — Add delay (simulate high-latency network):
+  sudo tc qdisc change dev eth0 root netem delay 200ms loss 10%
+
+STEP 6 — Remove the simulation when done:
+  sudo tc qdisc del dev eth0 root
+
+WHAT TO LOOK FOR:
+  ✓ Pages still load despite packet loss (ARQ is retransmitting)
+  ✓ Terminal shows retransmission log lines
+  ✓ BLOCK rules still block sites even under packet loss
+  ✓ System doesn't crash or freeze
+
+--------------------------------------------------------------
+  TEST 2 — Wireshark Encryption Verification
+--------------------------------------------------------------
+PURPOSE:
+  Confirm that all tunneled traffic is encrypted on the wire —
+  no plaintext domain names or HTTP content visible in packets.
+
+WHAT YOU NEED:
+  sudo apt install wireshark   (if not installed)
+
+STEP 1 — Open Wireshark:
+  sudo wireshark
+
+STEP 2 — Select your loopback interface (lo) since the gateway
+  runs locally. If the gateway is on a remote machine, select
+  your real network interface (eth0/wlan0) instead.
+
+STEP 3 — Apply this capture filter to only see UDP traffic on
+  the gateway port:
+    udp port 9999
+
+  Click the blue shark fin to start capturing.
+
+STEP 4 — In Firefox, visit a site that has a TUNNEL rule
+  (e.g. youtube.com). Let it load for a few seconds.
+
+STEP 5 — Stop the capture (red square button).
+
+STEP 6 — Click any captured UDP packet and look at the
+  "Data" field in the packet details pane.
+
+WHAT TO LOOK FOR:
+  ✓ The payload should look like random binary garbage
+  ✓ You should NOT be able to read any domain names
+  ✓ You should NOT see any HTTP headers or URLs
+  ✓ Every packet is a different length (variable encrypted chunks)
+
+  For a DIRECT connection (no TUNNEL rule), try the same thing
+  on TCP port 80 — there you WILL see plaintext (that's expected
+  and proves the contrast between DIRECT and TUNNEL).
+
+--------------------------------------------------------------
+  TEST 3 — DNS Leak Check
+--------------------------------------------------------------
+PURPOSE:
+  Verify that DNS queries for TUNNEL-policy domains are also
+  going through the tunnel, not leaking out through your real
+  network interface in plaintext.
+
+WHAT YOU NEED:
+  sudo wireshark  or  sudo tcpdump
+
+STEP 1 — Start capturing DNS traffic on your real interface:
+  sudo tcpdump -i eth0 port 53 -n
+
+  (replace eth0 with your actual interface name)
+
+STEP 2 — In Firefox (with SOCKS5 proxy configured), visit a
+  site that has a TUNNEL rule, e.g. youtube.com.
+
+STEP 3 — Watch the tcpdump output.
+
+WHAT TO LOOK FOR:
+  ✓ You should NOT see a DNS query for youtube.com going out
+    on your real interface — because Firefox sends the DNS
+    resolution request through the SOCKS5 proxy itself
+    (Firefox uses "Remote DNS" when SOCKS5 is configured),
+    so the gateway resolves it on the server side.
+
+  ✗ If you DO see "youtube.com" appearing in the tcpdump
+    output, it means DNS is leaking. To fix this in Firefox:
+      about:config → network.proxy.socks_remote_dns → true
+
+NOTE:
+  For DIRECT connections the domain WILL appear in DNS on your
+  interface — that's correct behavior (bypassing the tunnel).
+
+==============================================================
+  QUICK CHECKLIST
+==============================================================
+
+  [ ] pytest: 39/39 tests pass
+        venv/bin/python -m pytest tests/ -v
+
+  [ ] tc-netem: system works under 10% and 30% packet loss
+
+  [ ] Wireshark: UDP port 9999 shows only encrypted binary data
+
+  [ ] DNS: no plaintext DNS queries leak for TUNNEL domains
+        (check: about:config → network.proxy.socks_remote_dns = true)
+
+==============================================================
