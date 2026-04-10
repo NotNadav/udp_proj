@@ -83,7 +83,7 @@ router.post('/', authenticate, async (req, res) => {
   const { domain, action } = req.body || {};
   const validActions = ['BLOCK', 'TUNNEL', 'DIRECT'];
 
-  const DOMAIN_RE = /^(?:(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}|(?:\d{1,3}\.){3}\d{1,3}|localhost)$/;
+  const DOMAIN_RE = /^(?:(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}|(?:\d{1,3}\.){3}\d{1,3}(?:\/\d{1,2})?|localhost)$/;
 
   if (!domain || !action) {
     return res.status(422).json({ error: 'domain and action are required' });

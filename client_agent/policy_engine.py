@@ -1,4 +1,5 @@
 
+import ipaddress
 import json
 import os
 import signal
@@ -71,9 +72,22 @@ class PolicyEngine:
         print(f"policy engine: Background sync started (every {self.sync_interval}s).")
 
     @staticmethod
-    def _matches(pattern: str, domain: str) -> bool:
-        """Match exact domain or any subdomain, preventing suffix spoofing."""
-        return domain == pattern or domain.endswith('.' + pattern)
+    def _matches(pattern: str, host: str) -> bool:
+        """Match a rule pattern against a host (domain or IP).
+
+        Supports:
+        - Exact domain / subdomain:  google.com matches google.com and sub.google.com
+        - Exact IP:                  1.2.3.4 matches 1.2.3.4
+        - CIDR subnet:               192.168.1.0/24 matches any address in that subnet
+        """
+        try:
+            net  = ipaddress.ip_network(pattern, strict=False)
+            addr = ipaddress.ip_address(host)
+            return addr in net
+        except ValueError:
+            pass
+        # domain / subdomain match
+        return host == pattern or host.endswith('.' + pattern)
 
     # evaluation handler
     def evaluate(self, domain: str) -> str:
@@ -82,13 +96,16 @@ class PolicyEngine:
             rules = self.rules
 
         blocked = rules.get("blocked_domains", [])
-        tunnel  = rules.get("tunnel_domains", [])
-        default = rules.get("default_action", "DIRECT").upper()
+        tunnel  = rules.get("tunnel_domains",  [])
+        direct  = rules.get("direct_domains",  [])
+        default = rules.get("default_action",  "DIRECT").upper()
 
         if any(self._matches(b, domain) for b in blocked):
             return "BLOCK"
         if any(self._matches(t, domain) for t in tunnel):
             return "TUNNEL"
+        if any(self._matches(d, domain) for d in direct):
+            return "DIRECT"
         if default in ("TUNNEL", "BLOCK", "DIRECT"):
             return default
         return "DIRECT"
