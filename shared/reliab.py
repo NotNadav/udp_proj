@@ -24,9 +24,12 @@ class ReliabilityManager:
 
     # sender mechanisms
 
+    SEQ_MOD = 1 << 32  # 32-bit unsigned wrap
+
     def can_send(self) -> bool:
-        # true if window has room
-        return self.next_seq_num < self.send_base + self.window_size
+        # true if window has room (wraparound-safe)
+        in_flight = (self.next_seq_num - self.send_base) % self.SEQ_MOD
+        return in_flight < self.window_size
 
     def mark_sent(self, seq_num: int, packet_bytes: bytes) -> None:
         # mark sent and advances window
@@ -35,16 +38,16 @@ class ReliabilityManager:
             "timestamp": time.time(),
         }
         if seq_num >= self.next_seq_num:
-            self.next_seq_num = seq_num + 1
+            self.next_seq_num = (seq_num + 1) % self.SEQ_MOD
 
     def handle_ack(self, acked_seq: int) -> None:
         # handle specific ack sequence
         if acked_seq in self.unacked:
             del self.unacked[acked_seq]
 
-        # slide base forward
-        while self.send_base not in self.unacked and self.send_base < self.next_seq_num:
-            self.send_base += 1
+        # slide base forward (wraparound-safe)
+        while self.send_base not in self.unacked and self.send_base != self.next_seq_num:
+            self.send_base = (self.send_base + 1) % self.SEQ_MOD
 
     def get_expired_packets(self) -> list[tuple[int, bytes]]:
         # returns list of expired timed out packets
@@ -67,13 +70,13 @@ class ReliabilityManager:
 
         if seq_num == self.expected_seq:
             ready.append(payload)
-            self.expected_seq += 1
+            self.expected_seq = (self.expected_seq + 1) % self.SEQ_MOD
 
             # flush buffer
             while self.recv_buffer and self.recv_buffer[0][0] == self.expected_seq:
                 _, buffered_payload = heapq.heappop(self.recv_buffer)
                 ready.append(buffered_payload)
-                self.expected_seq += 1
+                self.expected_seq = (self.expected_seq + 1) % self.SEQ_MOD
 
         elif seq_num > self.expected_seq:
             heapq.heappush(self.recv_buffer, (seq_num, payload))

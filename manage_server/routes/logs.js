@@ -53,7 +53,8 @@ const logsLimiter = rateLimit({
  *         description: Unauthorized
  */
 router.post('/', authenticate, logsLimiter, async (req, res) => {
-  const { domain = '', bytes_sent } = req.body || {};
+  const { bytes_sent } = req.body || {};
+  const domain = String(req.body?.domain || '').slice(0, 253);
   if (bytes_sent === undefined || typeof bytes_sent !== 'number' || bytes_sent < 0) {
     return res.status(422).json({ error: 'bytes_sent must be a non-negative number' });
   }
@@ -79,7 +80,7 @@ router.post('/', authenticate, logsLimiter, async (req, res) => {
  *     security:
  *       - BearerAuth: []
  */
-router.post('/health', authenticate, async (req, res) => {
+router.post('/health', authenticate, logsLimiter, async (req, res) => {
   const retransmissions = parseInt(req.body?.retransmissions) || 0;
   try {
     await db.execute(
@@ -110,12 +111,13 @@ router.get('/health', authenticate, async (req, res) => {
   }
   try {
     const [rows] = await db.execute(
-      `SELECT u.username, nh.retransmissions, nh.updated_at
+      `SELECT nh.user_id, nh.retransmissions
        FROM network_health nh
-       JOIN users u ON u.id = nh.user_id
        ORDER BY nh.updated_at DESC`
     );
-    res.json(rows);
+    const map = {};
+    rows.forEach(r => { map[r.user_id] = r.retransmissions; });
+    res.json(map);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Internal server error' });

@@ -63,6 +63,9 @@ router.post('/register', authLimiter, async (req, res) => {
   if (password.length < 8) {
     return res.status(422).json({ error: 'password must be at least 8 characters' });
   }
+  if (!/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) {
+    return res.status(422).json({ error: 'password must contain at least one letter and one digit' });
+  }
 
   const hash = await bcrypt.hash(password, 10);
   try {

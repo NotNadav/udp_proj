@@ -412,9 +412,14 @@ class Multiplexer:
         await loop.sock_sendto(self.udp_socket, syn, self.gateway_address)
 
         bytes_sent = 0
+        IDLE_TIMEOUT = 300.0  # close stream if silent for 5 minutes
         try:
             while True:
-                data = await reader.read(4096)
+                try:
+                    data = await asyncio.wait_for(reader.read(4096), timeout=IDLE_TIMEOUT)
+                except asyncio.TimeoutError:
+                    print(f"[!] Stream {stream_id} idle for {IDLE_TIMEOUT:.0f}s, closing.")
+                    break
                 if not data:
                     break
 

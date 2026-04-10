@@ -7,6 +7,7 @@ import socket
 import sys
 import os
 import random
+import time
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -70,9 +71,10 @@ class SecureGateway:
 
         session_id = pending["session_id"]
         self.sessions[session_id] = {
-            "crypto":      pending["crypto"],
-            "client_addr": client_addr,
-            "streams":     {},   # stream_id → {writer, send_arq, recv_arq}
+            "crypto":        pending["crypto"],
+            "client_addr":   client_addr,
+            "streams":       {},   # stream_id → {writer, send_arq, recv_arq}
+            "last_activity": time.time(),
         }
         print(f"ECDHE handshake complete — session {session_id} active from {client_addr}")
 
@@ -85,6 +87,8 @@ class SecureGateway:
             target_str = pkt["payload"].decode()
             domain, port_str = target_str.rsplit(":", 1)
             port = int(port_str)
+            if not (1 <= port <= 65535):
+                raise ValueError(f"port {port} out of range")
         except Exception as e:
             print(f"Bad stream SYN payload: {e}")
             return
@@ -270,6 +274,7 @@ class SecureGateway:
                     if not stream:
                         continue
 
+                    session["last_activity"] = time.time()
                     crypto = session["crypto"]
 
                     # send ack back
@@ -293,13 +298,33 @@ class SecureGateway:
                         writer.write(chunk)
                     await writer.drain()
 
-            except Exception:
+            except Exception as e:
+                print(f"[!] UDP listener error: {e}")
                 await asyncio.sleep(0.01)
+
+    # zombie session cleanup
+
+    async def _cleanup_sessions(self, timeout: float = 300.0):
+        """Drop sessions with no activity for `timeout` seconds."""
+        while True:
+            await asyncio.sleep(60)
+            now = time.time()
+            for sid in list(self.sessions):
+                session = self.sessions[sid]
+                if now - session.get("last_activity", now) > timeout:
+                    for stream in session["streams"].values():
+                        try:
+                            stream["writer"].close()
+                        except Exception:
+                            pass
+                    del self.sessions[sid]
+                    print(f"Session {sid} expired after {timeout:.0f}s inactivity")
 
     # engine run
 
     async def run(self):
         asyncio.create_task(self.retransmission_loop())
+        asyncio.create_task(self._cleanup_sessions())
         await self.start_listening()
 
 
