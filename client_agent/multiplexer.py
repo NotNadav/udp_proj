@@ -87,8 +87,8 @@ class Multiplexer:
             print("    → Agent will use local rules.json only (no sync, no log reporting).")
             return ""
 
-    def _report_traffic(self, domain: str, bytes_sent: int):
-        """Report a traffic log entry to the management API (fire-and-forget)."""
+    async def _report_traffic(self, domain: str, bytes_sent: int):
+        """Report a traffic log entry to the management API (non-blocking)."""
         if not self.api_token:
             return
         try:
@@ -102,7 +102,8 @@ class Multiplexer:
                 },
                 method="POST",
             )
-            urllib.request.urlopen(req, timeout=3)
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, lambda: urllib.request.urlopen(req, timeout=3))
         except Exception as e:
             print(f"[!] Traffic report failed for {domain}: {e}")
 
@@ -257,6 +258,14 @@ class Multiplexer:
                 if stream_id == 0:
                     continue
 
+                # SYN-ACK: gateway confirmed stream is ready (TCP connection established)
+                if flags == ProtocolPacket.FLAG_SYN_ACK:
+                    if stream_id in self.active_streams:
+                        ready = self.active_streams[stream_id].get("ready")
+                        if ready:
+                            ready.set()
+                    continue
+
                 # ack from gateway
                 if flags & ProtocolPacket.FLAG_ACK:
                     if stream_id in self.active_streams:
@@ -373,7 +382,7 @@ class Multiplexer:
 
         if action == "BLOCK":
             print(f"[✗] BLOCKED: {domain}")
-            self._report_traffic(domain, 0)
+            asyncio.create_task(self._report_traffic(domain, 0))
             writer.close()
             await writer.wait_closed()
             return
@@ -390,6 +399,7 @@ class Multiplexer:
         # Create per-stream ARQ managers (sender + receiver)
         send_arq = ReliabilityManager(window_size=32, timeout_seconds=2.0)
         recv_arq = ReliabilityManager(window_size=32, timeout_seconds=2.0)
+        stream_ready = asyncio.Event()
 
         self.active_streams[stream_id] = {
             "writer":    writer,
@@ -397,11 +407,16 @@ class Multiplexer:
             "arq":       send_arq,
             "recv_arq":  recv_arq,
             "first_sent": False,
+            "ready":     stream_ready,
         }
 
         loop = asyncio.get_running_loop()
 
-        # Send SYN to open the stream on the gateway
+        # Send SYN and wait for the gateway's SYN-ACK before sending any DATA.
+        # The gateway only sends SYN-ACK once the outbound TCP connection to the
+        # target host is established, so there is no longer a race where DATA
+        # arrives before the stream exists on the gateway side.
+        # Retransmit SYN every 2 s in case the packet is lost.
         syn = ProtocolPacket.pack(
             session_id=self.session_id,
             stream_id=stream_id,
@@ -409,10 +424,31 @@ class Multiplexer:
             flags=ProtocolPacket.FLAG_SYN,
             payload=f"{domain}:{port}".encode(),
         )
+        STREAM_SETUP_TIMEOUT = 10.0
+        deadline = loop.time() + STREAM_SETUP_TIMEOUT
         await loop.sock_sendto(self.udp_socket, syn, self.gateway_address)
+        while not stream_ready.is_set():
+            if stream_id not in self.active_streams:
+                # Gateway sent FIN — target host unreachable
+                writer.close()
+                await writer.wait_closed()
+                return
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                print(f"[!] Stream {stream_id} ({domain}): no SYN-ACK from gateway, aborting.")
+                if stream_id in self.active_streams:
+                    del self.active_streams[stream_id]
+                writer.close()
+                await writer.wait_closed()
+                return
+            try:
+                await asyncio.wait_for(stream_ready.wait(), timeout=min(2.0, remaining))
+            except asyncio.TimeoutError:
+                # Retransmit SYN
+                await loop.sock_sendto(self.udp_socket, syn, self.gateway_address)
 
         bytes_sent = 0
-        IDLE_TIMEOUT = 300.0  # close stream if silent for 5 minutes
+        IDLE_TIMEOUT = 60.0  # close idle stream after 60 s so traffic is reported promptly
         try:
             while True:
                 try:
@@ -460,7 +496,7 @@ class Multiplexer:
             except Exception:
                 pass
             # Report traffic to dashboard
-            self._report_traffic(domain, max(bytes_sent, 1))
+            await self._report_traffic(domain, max(bytes_sent, 1))
             if stream_id in self.active_streams:
                 del self.active_streams[stream_id]
             writer.close()
@@ -504,7 +540,7 @@ class Multiplexer:
             pipe(client_reader, remote_writer, count=True),
             pipe(remote_reader, client_writer),
         )
-        self._report_traffic(domain, max(total_bytes, 1))
+        await self._report_traffic(domain, max(total_bytes, 1))
 
     # main
 

@@ -72,10 +72,11 @@ class SecureGateway:
 
         session_id = pending["session_id"]
         self.sessions[session_id] = {
-            "crypto":        pending["crypto"],
-            "client_addr":   client_addr,
-            "streams":       {},   # stream_id → {writer, send_arq, recv_arq}
-            "last_activity": time.time(),
+            "crypto":          pending["crypto"],
+            "client_addr":     client_addr,
+            "streams":         {},    # stream_id → {writer, send_arq, recv_arq}
+            "pending_streams": set(), # stream_ids currently being connected
+            "last_activity":   time.time(),
         }
         print(f"ECDHE handshake complete — session {session_id} active from {client_addr}")
 
@@ -92,6 +93,7 @@ class SecureGateway:
                 raise ValueError(f"port {port} out of range")
         except Exception as e:
             print(f"Bad stream SYN payload: {e}")
+            session["pending_streams"].discard(stream_id)
             return
 
         print(f"Stream {stream_id}: opening → {domain}:{port}")
@@ -100,12 +102,13 @@ class SecureGateway:
             reader, writer = await asyncio.open_connection(domain, port)
         except Exception as e:
             print(f"Failed to connect to {domain}:{port}: {e}")
-            # send fin back if fail
+            # send FIN so the client knows connection failed
             fin = ProtocolPacket.pack(
                 session_id=session_id, stream_id=stream_id,
                 seq_num=0, flags=ProtocolPacket.FLAG_FIN,
             )
             await loop.sock_sendto(self.udp_socket, fin, client_addr)
+            session["pending_streams"].discard(stream_id)
             return
 
         send_arq = ReliabilityManager(window_size=32, timeout_seconds=2.0)
@@ -119,8 +122,20 @@ class SecureGateway:
             "send_arq": send_arq,
             "recv_arq": recv_arq,
         }
+        session["pending_streams"].discard(stream_id)
 
-        # create a task to send back udp
+        # Notify client the TCP connection is established — client waits for
+        # this before sending any DATA, eliminating the race condition.
+        syn_ack = ProtocolPacket.pack(
+            session_id=session_id,
+            stream_id=stream_id,
+            seq_num=0,
+            flags=ProtocolPacket.FLAG_SYN_ACK,
+            payload=b"",
+        )
+        await loop.sock_sendto(self.udp_socket, syn_ack, client_addr)
+
+        # start forwarding TCP responses back to client via UDP
         asyncio.create_task(
             self._tcp_to_udp(session, session_id, stream_id, reader, client_addr)
         )
@@ -254,7 +269,17 @@ class SecureGateway:
 
                 # stream level syn
                 if flags & ProtocolPacket.FLAG_SYN and not (flags & ProtocolPacket.FLAG_ACK):
-                    asyncio.create_task(self._handle_stream_syn(session, session_id, pkt, addr, loop))
+                    if stream_id in session["streams"]:
+                        # Stream already ready — client retransmitted SYN, resend SYN-ACK
+                        syn_ack = ProtocolPacket.pack(
+                            session_id=session_id, stream_id=stream_id,
+                            seq_num=0, flags=ProtocolPacket.FLAG_SYN_ACK, payload=b"")
+                        await loop.sock_sendto(self.udp_socket, syn_ack, addr)
+                    elif stream_id not in session["pending_streams"]:
+                        # New stream — start connecting
+                        session["pending_streams"].add(stream_id)
+                        asyncio.create_task(self._handle_stream_syn(session, session_id, pkt, addr, loop))
+                    # else: duplicate SYN while still connecting — ignore
                     continue
 
                 # stream fin
@@ -297,6 +322,7 @@ class SecureGateway:
                     writer = stream["writer"]
                     for chunk in ready:
                         writer.write(chunk)
+                    await writer.drain()
 
             except Exception as e:
                 print(f"[!] UDP listener error: {e}")
