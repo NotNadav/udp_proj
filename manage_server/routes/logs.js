@@ -185,8 +185,8 @@ router.get('/', authenticate, async (req, res) => {
       JOIN users u ON u.id = tl.user_id
       ${since ? 'WHERE tl.timestamp > ?' : ''}
       ORDER BY tl.timestamp DESC
-      LIMIT ?`;
-    params = since ? [since, limit] : [limit];
+      LIMIT ${limit}`;
+    params = since ? [since] : [];
   } else {
     query = `
       SELECT id, user_id, domain, bytes_sent, timestamp
@@ -194,8 +194,8 @@ router.get('/', authenticate, async (req, res) => {
       WHERE user_id = ?
       ${since ? 'AND timestamp > ?' : ''}
       ORDER BY timestamp DESC
-      LIMIT ?`;
-    params = since ? [req.user.id, since, limit] : [req.user.id, limit];
+      LIMIT ${limit}`;
+    params = since ? [req.user.id, since] : [req.user.id];
   }
 
   try {
