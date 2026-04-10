@@ -54,7 +54,11 @@ const logsLimiter = rateLimit({
  */
 router.post('/', authenticate, logsLimiter, async (req, res) => {
   const { bytes_sent } = req.body || {};
-  const domain = String(req.body?.domain || '').slice(0, 253);
+  const rawDomain = String(req.body?.domain || '');
+  const domain = rawDomain.trim().toLowerCase()
+    .replace(/^https?:\/\//i, '')
+    .replace(/[/?#].*$/, '')
+    .slice(0, 253);
   if (bytes_sent === undefined || typeof bytes_sent !== 'number' || bytes_sent < 0) {
     return res.status(422).json({ error: 'bytes_sent must be a non-negative number' });
   }
@@ -82,6 +86,9 @@ router.post('/', authenticate, logsLimiter, async (req, res) => {
  */
 router.post('/health', authenticate, logsLimiter, async (req, res) => {
   const retransmissions = parseInt(req.body?.retransmissions) || 0;
+  if (retransmissions < 0 || retransmissions > 1_000_000) {
+    return res.status(422).json({ error: 'retransmissions must be between 0 and 1,000,000' });
+  }
   try {
     await db.execute(
       `INSERT INTO network_health (user_id, retransmissions)
@@ -109,14 +116,22 @@ router.get('/health', authenticate, async (req, res) => {
   if (req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Admin privileges required' });
   }
+  const STALE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes — agent reports every 10s
   try {
     const [rows] = await db.execute(
-      `SELECT nh.user_id, nh.retransmissions
+      `SELECT nh.user_id, nh.retransmissions, nh.updated_at
        FROM network_health nh
        ORDER BY nh.updated_at DESC`
     );
+    const now = Date.now();
     const map = {};
-    rows.forEach(r => { map[r.user_id] = r.retransmissions; });
+    rows.forEach(r => {
+      map[r.user_id] = {
+        retransmissions: r.retransmissions,
+        updated_at: r.updated_at,
+        stale: now - new Date(r.updated_at).getTime() > STALE_THRESHOLD_MS,
+      };
+    });
     res.json(map);
   } catch (err) {
     console.error(err);

@@ -47,8 +47,9 @@ class SecureGateway:
 
         # put in pending
         self.pending_handshakes[client_addr] = {
-            "crypto":     crypto,
-            "session_id": session_id,
+            "crypto":      crypto,
+            "session_id":  session_id,
+            "initiated_at": time.time(),
         }
 
         # send syn_ack
@@ -302,6 +303,19 @@ class SecureGateway:
                 print(f"[!] UDP listener error: {e}")
                 await asyncio.sleep(0.01)
 
+    # pending handshake TTL cleanup
+
+    async def _cleanup_pending_handshakes(self, ttl: float = 30.0):
+        """Drop pending handshakes where the client never sent the final ACK."""
+        while True:
+            await asyncio.sleep(ttl)
+            now = time.time()
+            stale = [addr for addr, p in self.pending_handshakes.items()
+                     if now - p.get("initiated_at", now) > ttl]
+            for addr in stale:
+                del self.pending_handshakes[addr]
+                print(f"Pending handshake from {addr} expired after {ttl:.0f}s — discarded")
+
     # zombie session cleanup
 
     async def _cleanup_sessions(self, timeout: float = 300.0):
@@ -325,6 +339,7 @@ class SecureGateway:
     async def run(self):
         asyncio.create_task(self.retransmission_loop())
         asyncio.create_task(self._cleanup_sessions())
+        asyncio.create_task(self._cleanup_pending_handshakes())
         await self.start_listening()
 
 
