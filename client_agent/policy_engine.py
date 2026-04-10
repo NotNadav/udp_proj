@@ -1,6 +1,7 @@
 
 import json
 import os
+import signal
 import threading
 
 try:
@@ -47,7 +48,7 @@ class PolicyEngine:
         except urllib.error.HTTPError as e:
             if e.code == 401:
                 print("[!] Access Revoked: Admin triggered Killswitch. Shutting down immediately.")
-                os._exit(1)
+                os.kill(os.getpid(), signal.SIGTERM)
             print(f"policy engine: Remote sync failed: {e}")
             return None
         except Exception as exc:

@@ -3,7 +3,6 @@ import asyncio
 import socket
 import sys
 import os
-import struct
 import json
 import urllib.request
 import urllib.error
@@ -410,6 +409,7 @@ class Multiplexer:
         )
         await loop.sock_sendto(self.udp_socket, syn, self.gateway_address)
 
+        bytes_sent = 0
         try:
             while True:
                 data = await reader.read(4096)
@@ -421,6 +421,7 @@ class Multiplexer:
                     await asyncio.sleep(0.05)
 
                 seq = send_arq.next_seq_num
+                bytes_sent += len(data)
 
                 # Encrypt payload
                 payload = self.crypto.encrypt(data)
@@ -437,8 +438,8 @@ class Multiplexer:
                 send_arq.mark_sent(seq, packet)
                 await loop.sock_sendto(self.udp_socket, packet, self.gateway_address)
 
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[!] Stream {stream_id} error: {e}")
         finally:
             # Send FIN to close the stream
             fin = ProtocolPacket.pack(
@@ -452,8 +453,7 @@ class Multiplexer:
             except Exception:
                 pass
             # Report traffic to dashboard
-            total_bytes = sum(arq.next_seq_num for arq in [send_arq] if arq) * 4096
-            self._report_traffic(domain, max(total_bytes, 1))
+            self._report_traffic(domain, max(bytes_sent, 1))
             if stream_id in self.active_streams:
                 del self.active_streams[stream_id]
             writer.close()
@@ -473,7 +473,7 @@ class Multiplexer:
 
         total_bytes = 0
 
-        async def pipe(r, w, label, count=False):
+        async def pipe(r, w, count=False):
             nonlocal total_bytes
             try:
                 while True:
@@ -494,8 +494,8 @@ class Multiplexer:
                     pass
 
         await asyncio.gather(
-            pipe(client_reader, remote_writer, "client→remote", count=True),
-            pipe(remote_reader, client_writer, "remote→client"),
+            pipe(client_reader, remote_writer, count=True),
+            pipe(remote_reader, client_writer),
         )
         self._report_traffic(domain, max(total_bytes, 1))
 

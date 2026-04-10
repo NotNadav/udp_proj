@@ -4,7 +4,6 @@ secure gateway — udp server wrapper for encryption
 
 import asyncio
 import socket
-import struct
 import sys
 import os
 import random
@@ -63,7 +62,7 @@ class SecureGateway:
         await loop.sock_sendto(self.udp_socket, syn_ack, client_addr)
         print(f"ECDHE SYN_ACK sent to {client_addr} — session_id={session_id}")
 
-    async def _handle_handshake_ack(self, pkt, client_addr):
+    async def _handle_handshake_ack(self, _pkt, client_addr):
         # client sent ack
         pending = self.pending_handshakes.pop(client_addr, None)
         if not pending:
@@ -170,8 +169,8 @@ class SecureGateway:
                 send_arq.mark_sent(seq, packet)
                 await loop.sock_sendto(self.udp_socket, packet, client_addr)
 
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[!] Stream {stream_id} TCP read error: {e}")
         finally:
             # send fin to client
             fin = ProtocolPacket.pack(

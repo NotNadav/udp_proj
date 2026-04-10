@@ -1,7 +1,16 @@
-const router = require('express').Router();
-const bcrypt = require('bcryptjs');
-const jwt    = require('jsonwebtoken');
-const db     = require('../db/db');
+const router    = require('express').Router();
+const bcrypt    = require('bcryptjs');
+const jwt       = require('jsonwebtoken');
+const db        = require('../db/db');
+const rateLimit = require('express-rate-limit');
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many attempts, please try again later.' },
+});
 
 /**
  * @openapi
@@ -43,7 +52,7 @@ const db     = require('../db/db');
  *       422:
  *         description: Validation error
  */
-router.post('/register', async (req, res) => {
+router.post('/register', authLimiter, async (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password) {
     return res.status(422).json({ error: 'username and password are required' });
@@ -102,7 +111,7 @@ router.post('/register', async (req, res) => {
  *       401:
  *         description: Invalid credentials
  */
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, async (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password) {
     return res.status(422).json({ error: 'username and password are required' });
