@@ -54,6 +54,7 @@ mysql -u proxy_user -pproxy_secret udp_proxy_db -e "SHOW TABLES;"
 +-------------------------+
 | Tables_in_udp_proxy_db  |
 +-------------------------+
+| network_health          |
 | policies                |
 | traffic_logs            |
 | users                   |

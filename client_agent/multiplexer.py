@@ -54,7 +54,7 @@ class Multiplexer:
             sync_interval=60,
         )
 
-        #cryptog (ECDHE) — key derived after handshake 
+        #crypto (ECDHE) — key derived after handshake
         self.crypto = CryptoManager()
         self.handshake_done = asyncio.Event()
 

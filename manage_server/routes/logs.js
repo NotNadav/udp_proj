@@ -184,7 +184,7 @@ router.get('/', authenticate, async (req, res) => {
   }
 
   try {
-    const [rows] = await db.query(query, params);
+    const [rows] = await db.execute(query, params);
     res.json(rows);
   } catch (err) {
     console.error(err);

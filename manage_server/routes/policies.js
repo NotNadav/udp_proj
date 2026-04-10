@@ -104,7 +104,7 @@ router.post('/', authenticate, async (req, res) => {
       'INSERT INTO policies (user_id, domain, action) VALUES (?, ?, ?)',
       [req.user.id, cleanDomain, action]
     );
-    res.status(201).json({ id: result.insertId, domain, action });
+    res.status(201).json({ id: result.insertId, domain: cleanDomain, action });
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY') {
       return res.status(409).json({ error: 'A policy for this domain already exists' });
