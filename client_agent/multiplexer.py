@@ -47,9 +47,7 @@ class Multiplexer:
         self.api_token = self._login_to_api()
 
         #policy engine (with API sync if token available) 
-        rules_path = os.path.join(os.path.dirname(__file__), "rules.json")
         self.policy_engine = PolicyEngine(
-            rules_path,
             api_url=self.API_URL,
             api_token=self.api_token,
             sync_interval=60,

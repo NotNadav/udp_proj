@@ -14,32 +14,26 @@ except ImportError:
 class PolicyEngine:
     def __init__(
         self,
-        rules_path: str = "rules.json",
         api_url: str | None = None,
         api_token: str | None = None,
         sync_interval: int = 60,
     ):
-        self.rules_path    = rules_path
         self.api_url       = api_url or os.environ.get("MANAGE_SERVER_URL", "http://127.0.0.1:3001")
         self.api_token     = api_token or os.environ.get("PROXY_API_TOKEN", "")
         self.sync_interval = sync_interval
         self._lock         = threading.Lock()
-        self.rules         = self._load_rules()
+        
+        # default rules (in-memory only)
+        self.rules = {"blocked_domains": [], "tunnel_domains": [], "default_action": "DIRECT"}
 
-        # background sync if u have a json token
         if self.api_token and _HTTP_AVAILABLE:
+            # perform mandatory initial sync before processing traffic
+            initial = self._fetch_remote_rules()
+            if initial:
+                self.rules = initial
+                print("policy engine: Rules fetched from management server.")
+            
             self._start_sync()
-
-    # load rules from files
-    def _load_rules(self) -> dict:
-        # load from local rule file
-        if not os.path.exists(self.rules_path):
-            return {"blocked_domains": [], "tunnel_domains": [], "default_action": "DIRECT"}
-        try:
-            with open(self.rules_path, "r") as f:
-                return json.load(f)
-        except Exception:
-            return {"blocked_domains": [], "tunnel_domains": [], "default_action": "DIRECT"}
 
     def _fetch_remote_rules(self) -> dict | None:
         # fetch rules from the api
@@ -68,11 +62,6 @@ class PolicyEngine:
             if remote:
                 with self._lock:
                     self.rules = remote
-                    try:
-                        with open(self.rules_path, "w") as f:
-                            json.dump(remote, f, indent=2)
-                    except Exception:
-                        pass
                 print("policy engine: Rules synced from manage_server.")
 
     def _start_sync(self):
@@ -102,16 +91,13 @@ class PolicyEngine:
         return "DIRECT"
 
     def reload(self):
-        # reload rules
-        with self._lock:
-            self.rules = self._load_rules()
+        # no-op now that we don't use local files
+        pass
 
 
 # self test
 if __name__ == "__main__":
-    engine = PolicyEngine(
-        os.path.join(os.path.dirname(__file__), "rules.json")
-    )
+    engine = PolicyEngine()
     test_domains = ["google.com", "facebook.com", "ynet.co.il", "youtube.com"]
     for d in test_domains:
         print(f"  {d:25s} → {engine.evaluate(d)}")
