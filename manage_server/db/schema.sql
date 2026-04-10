@@ -48,6 +48,16 @@ CREATE TABLE IF NOT EXISTS traffic_logs (
     INDEX idx_logs_time      (timestamp)
 ) ENGINE=InnoDB;
 
+-- network health (retransmission counts per user, upserted by agents)
+CREATE TABLE IF NOT EXISTS network_health (
+    user_id         INT UNSIGNED NOT NULL PRIMARY KEY,
+    retransmissions INT UNSIGNED NOT NULL DEFAULT 0,
+    updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_health_user
+        FOREIGN KEY (user_id) REFERENCES users(id)
+        ON DELETE CASCADE
+) ENGINE=InnoDB;
+
 -- default admin account (pass: admin123)
 -- change this in prod
 INSERT IGNORE INTO users (username, password_hash, role)

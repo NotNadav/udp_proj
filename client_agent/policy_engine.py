@@ -70,6 +70,11 @@ class PolicyEngine:
         t.start()
         print(f"policy engine: Background sync started (every {self.sync_interval}s).")
 
+    @staticmethod
+    def _matches(pattern: str, domain: str) -> bool:
+        """Match exact domain or any subdomain, preventing suffix spoofing."""
+        return domain == pattern or domain.endswith('.' + pattern)
+
     # evaluation handler
     def evaluate(self, domain: str) -> str:
         # evaluates where to route the traffic
@@ -80,13 +85,10 @@ class PolicyEngine:
         tunnel  = rules.get("tunnel_domains", [])
         default = rules.get("default_action", "DIRECT").upper()
 
-        # if domain is in blocked list
-        if any(b in domain for b in blocked):
+        if any(self._matches(b, domain) for b in blocked):
             return "BLOCK"
-        # check tunnel list
-        if any(t in domain for t in tunnel):
+        if any(self._matches(t, domain) for t in tunnel):
             return "TUNNEL"
-        # revert to default
         if default in ("TUNNEL", "BLOCK", "DIRECT"):
             return default
         return "DIRECT"

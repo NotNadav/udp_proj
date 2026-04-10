@@ -30,11 +30,16 @@ const { authenticate } = require('../middleware/auth');
  *         description: Unauthorized
  */
 router.get('/', authenticate, async (req, res) => {
-  const [rows] = await db.execute(
-    'SELECT id, domain, action, created_at FROM policies WHERE user_id = ? ORDER BY created_at DESC',
-    [req.user.id]
-  );
-  res.json(rows);
+  try {
+    const [rows] = await db.execute(
+      'SELECT id, domain, action, created_at FROM policies WHERE user_id = ? ORDER BY created_at DESC',
+      [req.user.id]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 /**
@@ -78,8 +83,13 @@ router.post('/', authenticate, async (req, res) => {
   const { domain, action } = req.body || {};
   const validActions = ['BLOCK', 'TUNNEL', 'DIRECT'];
 
+  const DOMAIN_RE = /^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/;
+
   if (!domain || !action) {
     return res.status(422).json({ error: 'domain and action are required' });
+  }
+  if (!DOMAIN_RE.test(domain)) {
+    return res.status(422).json({ error: 'Invalid domain format' });
   }
   if (!validActions.includes(action)) {
     return res.status(422).json({ error: `action must be one of: ${validActions.join(', ')}` });
@@ -140,14 +150,19 @@ router.put('/:id', authenticate, async (req, res) => {
     return res.status(422).json({ error: `action must be one of: ${validActions.join(', ')}` });
   }
 
-  const [result] = await db.execute(
-    'UPDATE policies SET action = ? WHERE id = ? AND user_id = ?',
-    [action, req.params.id, req.user.id]
-  );
-  if (result.affectedRows === 0) {
-    return res.status(404).json({ error: 'Policy not found' });
+  try {
+    const [result] = await db.execute(
+      'UPDATE policies SET action = ? WHERE id = ? AND user_id = ?',
+      [action, req.params.id, req.user.id]
+    );
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Policy not found' });
+    }
+    res.json({ message: 'Policy updated' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
   }
-  res.json({ message: 'Policy updated' });
 });
 
 /**
@@ -174,14 +189,19 @@ router.put('/:id', authenticate, async (req, res) => {
  *         description: Unauthorized
  */
 router.delete('/:id', authenticate, async (req, res) => {
-  const [result] = await db.execute(
-    'DELETE FROM policies WHERE id = ? AND user_id = ?',
-    [req.params.id, req.user.id]
-  );
-  if (result.affectedRows === 0) {
-    return res.status(404).json({ error: 'Policy not found' });
+  try {
+    const [result] = await db.execute(
+      'DELETE FROM policies WHERE id = ? AND user_id = ?',
+      [req.params.id, req.user.id]
+    );
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Policy not found' });
+    }
+    res.json({ message: 'Policy deleted' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
   }
-  res.json({ message: 'Policy deleted' });
 });
 
 module.exports = router;

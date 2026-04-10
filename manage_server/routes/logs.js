@@ -1,6 +1,15 @@
-const router = require('express').Router();
-const db     = require('../db/db');
+const router    = require('express').Router();
+const db        = require('../db/db');
+const rateLimit = require('express-rate-limit');
 const { authenticate } = require('../middleware/auth');
+
+const logsLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many log submissions, slow down.' },
+});
 
 /**
  * @openapi
@@ -43,21 +52,23 @@ const { authenticate } = require('../middleware/auth');
  *       401:
  *         description: Unauthorized
  */
-router.post('/', authenticate, async (req, res) => {
+router.post('/', authenticate, logsLimiter, async (req, res) => {
   const { domain = '', bytes_sent } = req.body || {};
   if (bytes_sent === undefined || typeof bytes_sent !== 'number' || bytes_sent < 0) {
     return res.status(422).json({ error: 'bytes_sent must be a non-negative number' });
   }
 
-  const [result] = await db.execute(
-    'INSERT INTO traffic_logs (user_id, domain, bytes_sent) VALUES (?, ?, ?)',
-    [req.user.id, domain, bytes_sent]
-  );
-  res.status(201).json({ id: result.insertId, user_id: req.user.id, domain, bytes_sent });
+  try {
+    const [result] = await db.execute(
+      'INSERT INTO traffic_logs (user_id, domain, bytes_sent) VALUES (?, ?, ?)',
+      [req.user.id, domain, bytes_sent]
+    );
+    res.status(201).json({ id: result.insertId, user_id: req.user.id, domain, bytes_sent });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
-
-// Initialize global network health storage
-global.networkHealth = global.networkHealth || {};
 
 /**
  * @openapi
@@ -68,10 +79,20 @@ global.networkHealth = global.networkHealth || {};
  *     security:
  *       - BearerAuth: []
  */
-router.post('/health', authenticate, (req, res) => {
-  const { retransmissions } = req.body;
-  global.networkHealth[req.user.id] = retransmissions || 0;
-  res.json({ ok: true });
+router.post('/health', authenticate, async (req, res) => {
+  const retransmissions = parseInt(req.body?.retransmissions) || 0;
+  try {
+    await db.execute(
+      `INSERT INTO network_health (user_id, retransmissions)
+       VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE retransmissions = VALUES(retransmissions), updated_at = NOW()`,
+      [req.user.id, retransmissions]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 /**
@@ -83,11 +104,22 @@ router.post('/health', authenticate, (req, res) => {
  *     security:
  *       - BearerAuth: []
  */
-router.get('/health', authenticate, (req, res) => {
+router.get('/health', authenticate, async (req, res) => {
   if (req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Admin privileges required' });
   }
-  res.json(global.networkHealth);
+  try {
+    const [rows] = await db.execute(
+      `SELECT u.username, nh.retransmissions, nh.updated_at
+       FROM network_health nh
+       JOIN users u ON u.id = nh.user_id
+       ORDER BY nh.updated_at DESC`
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 /**
@@ -149,8 +181,13 @@ router.get('/', authenticate, async (req, res) => {
     params = since ? [req.user.id, since, limit] : [req.user.id, limit];
   }
 
-  const [rows] = await db.query(query, params);
-  res.json(rows);
+  try {
+    const [rows] = await db.query(query, params);
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 /**
@@ -182,15 +219,20 @@ router.get('/summary', authenticate, async (req, res) => {
   const userFilter = req.user.role !== 'admin' ? 'WHERE tl.user_id = ?' : '';
   const params     = req.user.role !== 'admin' ? [req.user.id] : [];
 
-  const [rows] = await db.execute(`
-    SELECT u.username, SUM(tl.bytes_sent) AS total_bytes
-    FROM traffic_logs tl
-    JOIN users u ON u.id = tl.user_id
-    ${userFilter}
-    GROUP BY u.id, u.username
-    ORDER BY total_bytes DESC
-  `, params);
-  res.json(rows);
+  try {
+    const [rows] = await db.execute(`
+      SELECT u.username, SUM(tl.bytes_sent) AS total_bytes
+      FROM traffic_logs tl
+      JOIN users u ON u.id = tl.user_id
+      ${userFilter}
+      GROUP BY u.id, u.username
+      ORDER BY total_bytes DESC
+    `, params);
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 module.exports = router;

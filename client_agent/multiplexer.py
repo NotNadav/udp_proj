@@ -40,7 +40,9 @@ class Multiplexer:
         #UDP socket
         self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.udp_socket.setblocking(False)
-        self.gateway_address = ("127.0.0.1", 9999)
+        gw_host = os.environ.get("GATEWAY_HOST", "127.0.0.1")
+        gw_port = int(os.environ.get("GATEWAY_PORT", "9999"))
+        self.gateway_address = (gw_host, gw_port)
 
         #auto-login to management API 
         self.api_token = self._login_to_api()
@@ -101,8 +103,8 @@ class Multiplexer:
                 method="POST",
             )
             urllib.request.urlopen(req, timeout=3)
-        except Exception:
-            pass  # non-critical, don't disrupt the proxy
+        except Exception as e:
+            print(f"[!] Traffic report failed for {domain}: {e}")
 
     async def _report_health_loop(self):
         """Periodically report network health (packet drops) to the API."""

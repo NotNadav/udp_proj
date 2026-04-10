@@ -15,7 +15,13 @@ const app  = express();
 const PORT = process.env.PORT || 3001;
 
 // middlewares
-app.use(cors());
+const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173').split(',');
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin || allowedOrigins.includes(origin)) cb(null, true);
+    else cb(new Error('Not allowed by CORS'));
+  },
+}));
 app.use(express.json());
 
 // swagger documentation
